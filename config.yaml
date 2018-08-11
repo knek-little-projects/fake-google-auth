@@ -1,0 +1,12 @@
+logging:
+  level: DEBUG
+  format: "[%(levelno)02d %(asctime)s %(module)s] %(message)s"
+  datefmt: "%d/%m %H:%M"
+mongo:
+  address: 127.0.0.1
+  database: test
+  prefix: fake
+webapp:
+  url: http://g0ogle.com
+  cookie_secret: "SECRET"
+  debug: true

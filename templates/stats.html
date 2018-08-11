@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+  <style>
+    table th {
+      background: #eee;
+    }
+    table td, table th {
+      padding: 5px;
+      border: 1px solid #eee;
+    }
+    .password_True {
+      background: #4a4;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+<table>
+  <tr>
+    <th>Email</th>
+    <th>Password</th>
+    <th>Page</th>
+    <th>Date</th>
+  </tr>
+  {% for note in notes %}
+  <tr>
+    <td>{{ note.get_email() }}</td>
+    <td class="password_{{ bool(note.password) }}">
+      {% if note.password %}
+        &#10003;
+      {% end %}
+    </td>
+    <td>
+      {% if note.is_recovery %}
+        /recovery
+      {% else %}
+        /login
+      {% end %}
+    </td>
+    <td>{{ note.get_date() }}</td>
+  </tr>
+  {% end %}
+</table>
+</body>
+</html>
